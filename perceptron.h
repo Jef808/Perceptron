@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 #include <numeric>
+#include <iostream>
 #include <vector>
 
 namespace ml {
@@ -20,9 +21,11 @@ public:
     void set_training(InputIteratorX beg_x, InputIteratorX end_x, InputIteratorV beg_v, InputIteratorV end_v);
     void set_error(NT err) { m_error = err; }
     void set_training_rate(NT tr) { r = tr; }
+    void set_max_n_passes(int n) { max_n_passes = n; }
     int n_pass() { return n_passes; }
     void train();
     VT query(const std::vector<NT>& q);
+    void show(std::ostream& _out);
 private:
     double r{0.1};  // learning rate <- (0, 1)
     size_t n_fs;
@@ -31,29 +34,33 @@ private:
     std::vector<NT> m_ws;
     std::vector<VT> m_ys;
     NT m_error { 0.1 };
+    int max_n_passes{ 10 };
     int n_passes{ 0 };
-    NT feature(size_t x_ndx, size_t f_ndx) const;
 };
 
-template<typename Iter1>
-inline auto threshold(Iter1 w_beg, Iter1 w_end)
+template<typename ValueType>
+void Perceptron<ValueType>::show(std::ostream& _out)
 {
-    using WT = typename Iter1::value_type;
-    return [&, w_beg, w_end]<typename Iter2>(Iter2 x_beg){
-        WT res = std::transform_reduce(w_beg, w_end, x_beg, WT{0.0});
-        return res > -0.000001 ? WT{1.0} : WT{0.0};
-    };
+    for (auto ndx = 0; ndx < m_xs.size(); ++ndx) {
+        _out << "Val: "
+             << m_vs[ndx]
+             << "Weight: "
+             << m_ws[ndx]
+             << " X: {";
+        for (auto i=0; i<n_fs; ++i) {
+            _out << m_xs[ndx][i] << ", ";
+        }
+        _out << "}\n";
+    }
+    _out << std::endl;
 }
 
 template<typename ValueType>
 void Perceptron<ValueType>::init(size_t n_fs)
 {
     this->n_fs = n_fs;
-    m_xs.reserve(m_xs.size() * (n_fs+1));
-    m_vs.reserve(m_xs.size());
     m_ws.reserve(n_fs + 1);
-    m_ys.reserve(n_fs + 1);
-    std::fill(m_ws.begin(), m_ws.end(), 0.0);
+    std::fill_n(std::back_inserter(m_ws), n_fs+1, 0.0);
 }
 
 
@@ -63,47 +70,45 @@ void Perceptron<ValueType>::set_training(
     IterXs beg_xs, IterXs end_xs,
     IterV beg_v, IterV end_v)
 {
-    std::transform(beg_xs, end_xs, std::back_inserter(m_xs), [](const auto& x){
-        std::vector<NT> ret = x;
-        ret.push_back(1.0);
-        return ret;
-    });
+    auto xs_it = beg_xs;
+    for (; xs_it != end_xs; ++xs_it) {
+        auto x = *xs_it;
+        x.push_back(1.0);
+        m_xs.push_back(x);
+    }
+    m_vs.reserve(m_xs.size());
     std::copy(beg_v, end_v, std::back_inserter(m_vs));
-}
-
-template<typename ValueType>
-inline typename Perceptron<ValueType>::NT Perceptron<ValueType>::feature(size_t x_ndx, size_t f_ndx) const {
-    return m_xs[x_ndx][n_fs];
 }
 
 template<typename ValueType>
 void Perceptron<ValueType>::train()
 {
-    NT cur_error = std::numeric_limits<NT>::max();
+    double total_error = std::numeric_limits<double>::max();
     n_passes = 0;
-    while (cur_error > m_error) {
+    double goal_error = m_error * m_xs.size();
+
+    while (total_error > goal_error && n_passes < max_n_passes) {
         ++n_passes;
         m_ys.clear();
-        auto f = threshold(m_ws.begin(), m_ws.end());
-        auto y_it = m_ys.begin();
+        total_error = 0.0;
 
-        size_t x_ndx = 0;
         // For every vector in our training set:
-        for (; y_it != m_ys.end(); ++y_it, ++x_ndx) {
-            // Calculate the prediction
-            *y_it = f((m_xs.begin() + x_ndx)->begin());
+        for (int ndx=0; ndx<m_xs.size(); ++ndx) {
+            // Compute the output of the perceptron
+            const auto& x = m_xs[ndx];
+            auto dot = std::transform_reduce(m_ws.begin(), m_ws.end(), x.begin(), 0.0);
+            auto y = (dot > -0.00001 ? 1.0 : 0.0);
+            auto v = m_vs[ndx];
+
+            m_ys.push_back(y);
+
             // Update the weights
-            for (int f_ndx=0; f_ndx<n_fs+1; ++f_ndx)
-            {
-                double err = m_vs[x_ndx] - *y_it;
-                m_ws[f_ndx] += r * err * feature(x_ndx, f_ndx);
+            double err_ndx = v - y;
+            for (int i=0; i<n_fs+1; ++i) {
+                m_ws[i] += r * err_ndx * x[i];
             }
+            total_error += std::abs(err_ndx);
         }
-        cur_error = std::reduce(m_ys.begin(), m_ys.end(), 0.0, [x_ndx=0, v=m_vs[x_ndx]](const auto y, auto& s) mutable {
-            s += std::abs(v - y);
-            ++x_ndx;
-            return s;
-        });
     }
 }
 
@@ -112,7 +117,8 @@ ValueType Perceptron<ValueType>::query(const std::vector<NT>& q)
 {
     std::vector<NT> qq = q;
     qq.push_back(1.0);
-    return threshold(m_ws.begin(), m_ws.end())(qq.begin());
+    auto dot = std::transform_reduce(m_ws.begin(), m_ws.end(), qq.begin(), 0.0);
+    return (dot > -0.00001) ? 1.0 : 0.0;
 }
 
 } // namespace ml

@@ -1,9 +1,12 @@
+project( Perceptron )
 cmake_minimum_required( VERSION 3.20  )
-project( Perceptron LANGUAGE CXX)
 
 set( CMAKE_CXX_STANDARD 20 )
 set( CMAKE_CXX_STANDARD_REQUIRED 17 )
 set( CMAKE_EXPORT_COMPILE_COMMANDS on )
+set( CMAKE_BUILD_TYPE release )
 
-add_executable( perceptron main.cpp perceptron.cpp )
-target_include_directories( perceptron ${CMAKE_CURRENT_SOURCE_DIR} )
+add_library( perceptron INTERFACE perceptron.h )
+add_executable( main main.cpp )
+target_link_libraries( main PUBLIC perceptron)
+target_include_directories( main PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} )
